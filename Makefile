@@ -1,4 +1,4 @@
-VERSION := v1.1.0
+VERSION := v1.1.1
 
 # Name of this service/application
 SERVICE_NAME := redis-operator
@@ -7,7 +7,7 @@ SERVICE_NAME := redis-operator
 IMAGE_NAME := spotahome/$(SERVICE_NAME)
 
 # Repository url for this project
-REPOSITORY := quay.io/$(IMAGE_NAME)
+REPOSITORY := harbor.apusic.com/$(IMAGE_NAME):$(VERSION)
 
 # Shell to use for running scripts
 SHELL := $(shell which bash)
@@ -67,9 +67,8 @@ default: build
 docker-build: deps-development
 	docker build \
 		--build-arg uid=$(UID) \
-		-t $(REPOSITORY)-dev:latest \
-		-t $(REPOSITORY)-dev:$(COMMIT) \
-		-f $(DEV_DIR)/Dockerfile \
+		-t $(REPOSITORY) \
+		-f docker/app/Dockerfile \
 		.
 
 # Run a shell into the development docker image
@@ -85,7 +84,7 @@ build: docker-build
 # Run the development environment in the background
 .PHONY: run
 run: docker-build
-	docker run -ti --rm -v ~/.kube:/.kube:ro -v $(PWD):$(WORKDIR) -u $(UID):$(UID) --name $(SERVICE_NAME) -p $(PORT):$(PORT) $(REPOSITORY)-dev ./scripts/run.sh
+	docker run -ti --rm -v ~/.kube:/.kube:ro -v $(PWD):$(WORKDIR) -u $(UID):$(UID) --name $(SERVICE_NAME) -p $(PORT):$(PORT) $(REPOSITORY) ./scripts/run.sh
 
 # Build the production image based on the public one
 .PHONY: image

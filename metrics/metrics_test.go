@@ -1,7 +1,7 @@
 package metrics_test
 
 import (
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -126,10 +126,9 @@ func TestPrometheusMetrics(t *testing.T) {
 			h := promhttp.HandlerFor(reg, promhttp.HandlerOpts{})
 			w := httptest.NewRecorder()
 			h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/metrics", nil))
-
 			resp := w.Result()
 			if assert.Equal(test.expCode, resp.StatusCode) {
-				body, _ := ioutil.ReadAll(resp.Body)
+				body, _ := io.ReadAll(resp.Body)
 				// Check all the metrics are present.
 				for _, expMetric := range test.expMetrics {
 					assert.Contains(string(body), expMetric)

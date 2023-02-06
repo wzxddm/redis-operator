@@ -5,7 +5,8 @@ set -o nounset
 
 src=./cmd/redisoperator
 out=./bin/redis-operator
-
+TARGETOS=linux
+TARGETARCH=amd64
 if [[ ! -z ${TARGETOS} ]] && [[ ! -z ${TARGETARCH} ]];
 then
     echo "Building ${TARGETOS}/${TARGETARCH} release..."

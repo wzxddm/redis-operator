@@ -96,6 +96,11 @@ func generateRedisService(rf *redisfailoverv1.RedisFailover, labels map[string]s
 					Protocol: corev1.ProtocolTCP,
 					Name:     exporterPortName,
 				},
+				{
+					Port:     6379,
+					Protocol: corev1.ProtocolTCP,
+					Name:     "redis",
+				},
 			},
 			Selector: selectorLabels,
 		},
@@ -107,7 +112,7 @@ func generateSentinelConfigMap(rf *redisfailoverv1.RedisFailover, labels map[str
 	namespace := rf.Namespace
 
 	labels = util.MergeLabels(labels, generateSelectorLabels(sentinelRoleName, rf.Name))
-	sentinelConfigFileContent := `sentinel monitor mymaster 127.0.0.1 6379 2
+	sentinelConfigFileContent := `sentinel monitor mymaster %s 6379 2
 sentinel down-after-milliseconds mymaster 1000
 sentinel failover-timeout mymaster 3000
 sentinel parallel-syncs mymaster 2`
@@ -120,7 +125,7 @@ sentinel parallel-syncs mymaster 2`
 			OwnerReferences: ownerRefs,
 		},
 		Data: map[string]string{
-			sentinelConfigFileName: sentinelConfigFileContent,
+			sentinelConfigFileName: fmt.Sprintf(sentinelConfigFileContent, fmt.Sprintf("rfr-%s-0.rfr-%s.svc.cluster.local", rf.Name, rf.Name)),
 		},
 	}
 }
@@ -303,7 +308,11 @@ func generateRedisStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[stri
 								TimeoutSeconds:      5,
 								Handler: corev1.Handler{
 									Exec: &corev1.ExecAction{
-										Command: []string{"/bin/sh", "/redis-readiness/ready.sh"},
+										Command: []string{
+											"sh",
+											"-c",
+											"redis-cli -h $(hostname) ping",
+										},
 									},
 								},
 							},
@@ -323,13 +332,13 @@ func generateRedisStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[stri
 								},
 							},
 							Resources: rf.Spec.Redis.Resources,
-							Lifecycle: &corev1.Lifecycle{
+							/*Lifecycle: &corev1.Lifecycle{
 								PreStop: &corev1.Handler{
 									Exec: &corev1.ExecAction{
-										Command: []string{"/bin/sh", "/redis-shutdown/shutdown.sh"},
+										Command: []string{"/bin/bash", "/redis-shutdown/shutdown.sh"},
 									},
 								},
-							},
+							},*/
 						},
 					},
 					Volumes: volumes,
@@ -433,6 +442,17 @@ func generateSentinelDeployment(rf *redisfailoverv1.RedisFailover, labels map[st
 								{
 									Name:      "sentinel-config-writable",
 									MountPath: "/redis-writable",
+								},
+							},
+							ReadinessProbe: &corev1.Probe{
+								Handler: corev1.Handler{
+									Exec: &corev1.ExecAction{
+										Command: []string{
+											"redis-server",
+											fmt.Sprintf("/redis/%s", sentinelConfigFileName),
+											"--sentinel",
+										},
+									},
 								},
 							},
 							Command: []string{
