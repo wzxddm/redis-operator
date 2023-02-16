@@ -1,4 +1,4 @@
-VERSION := v1.1.1
+VERSION := v1.1.2
 
 # Name of this service/application
 SERVICE_NAME := redis-operator
@@ -7,7 +7,7 @@ SERVICE_NAME := redis-operator
 IMAGE_NAME := spotahome/$(SERVICE_NAME)
 
 # Repository url for this project
-REPOSITORY :=quay.io/$(IMAGE_NAME):$(VERSION)
+REPOSITORY :=harbor.apusic.com/$(IMAGE_NAME):$(VERSION)
 
 # Shell to use for running scripts
 SHELL := $(shell which bash)

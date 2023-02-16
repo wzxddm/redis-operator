@@ -2,7 +2,7 @@ package service
 
 import (
 	"bytes"
-	"embed"
+	_ "embed"
 	"fmt"
 	"strings"
 
