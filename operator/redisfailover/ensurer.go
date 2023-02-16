@@ -27,7 +27,9 @@ func (w *RedisFailoverHandler) Ensure(rf *redisfailoverv1.RedisFailover, labels 
 			return err
 		}
 	}
+	if rf.Spec.Password != "" {
 
+	}
 	if err := w.rfService.EnsureRedisShutdownConfigMap(rf, labels, or); err != nil {
 		return err
 	}

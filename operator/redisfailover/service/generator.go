@@ -1,10 +1,10 @@
 package service
 
 import (
+	"bytes"
+	"embed"
 	"fmt"
 	"strings"
-
-	"bytes"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -19,17 +19,15 @@ import (
 	"github.com/spotahome/redis-operator/operator/redisfailover/util"
 )
 
+//go:embed redis.conf
+var redisConfigTemplate string
+
+//go:embed sentinel.conf
+var sentinelConfigFileContent string
+
 const (
 	redisConfigurationVolumeName = "redis-config"
 	// Template used to build the Redis configuration
-	redisConfigTemplate = `slaveof 127.0.0.1 6379
-tcp-keepalive 60
-save 900 1
-save 300 10
-{{- range .Spec.Redis.CustomCommandRenames}}
-rename-command "{{.From}}" "{{.To}}"
-{{- end}}
-`
 	redisShutdownConfigurationVolumeName = "redis-shutdown-config"
 	redisReadinessVolumeName             = "redis-readiness-config"
 	redisStorageVolumeName               = "redis-data"
@@ -113,15 +111,6 @@ func generateSentinelConfigMap(rf *redisfailoverv1.RedisFailover, labels map[str
 	namespace := rf.Namespace
 
 	labels = util.MergeLabels(labels, generateSelectorLabels(sentinelRoleName, rf.Name))
-	sentinelConfigFileContent := `sentinel monitor mymaster %s 6379 2
-sentinel down-after-milliseconds mymaster 1000
-sentinel failover-timeout mymaster 3000
-# Only sentinel with version above 6.2 can resolve host names, but this is not enabled by default.
-sentinel resolve-hostnames yes
-# sentinel auth-pass mymaster $REDIS_PASSWORD
-sentinel parallel-syncs mymaster 2
-
-`
 
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
