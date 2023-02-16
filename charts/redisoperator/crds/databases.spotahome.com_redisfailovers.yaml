@@ -72,6 +72,8 @@ spec:
                 items:
                   type: string
                 type: array
+              password:
+                type: string
               redis:
                 description: RedisSettings defines the specification of the redis
                   cluster
