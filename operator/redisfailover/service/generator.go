@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"strings"
 
 	"bytes"
 
@@ -115,7 +116,12 @@ func generateSentinelConfigMap(rf *redisfailoverv1.RedisFailover, labels map[str
 	sentinelConfigFileContent := `sentinel monitor mymaster %s 6379 2
 sentinel down-after-milliseconds mymaster 1000
 sentinel failover-timeout mymaster 3000
-sentinel parallel-syncs mymaster 2`
+# Only sentinel with version above 6.2 can resolve host names, but this is not enabled by default.
+sentinel resolve-hostnames yes
+# sentinel auth-pass mymaster $REDIS_PASSWORD
+sentinel parallel-syncs mymaster 2
+
+`
 
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -125,7 +131,7 @@ sentinel parallel-syncs mymaster 2`
 			OwnerReferences: ownerRefs,
 		},
 		Data: map[string]string{
-			sentinelConfigFileName: fmt.Sprintf(sentinelConfigFileContent, fmt.Sprintf("rfr-%s-0.rfr-%s.svc.cluster.local", rf.Name, rf.Name)),
+			sentinelConfigFileName: fmt.Sprintf(sentinelConfigFileContent, fmt.Sprintf("rfr-%s-0.rfr-%s", rf.Name, rf.Name)),
 		},
 	}
 }
@@ -375,7 +381,7 @@ func generateRedisStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[stri
 		exporter := createRedisExporterContainer(rf)
 		ss.Spec.Template.Spec.Containers = append(ss.Spec.Template.Spec.Containers, exporter)
 	}
-
+	// TODO 自動創建secret
 	if rf.Spec.Auth.SecretPath != "" {
 		ss.Spec.Template.Spec.Containers[0].Env = append(ss.Spec.Template.Spec.Containers[0].Env, corev1.EnvVar{
 			Name: "REDIS_PASSWORD",
@@ -393,11 +399,25 @@ func generateRedisStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[stri
 	return ss
 }
 
+var defaultShell = "bash"
+
 func generateSentinelDeployment(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *appsv1.Deployment {
+	shell := defaultShell
+	if strings.Contains(rf.Spec.Sentinel.Image, "alpine") {
+		shell = "sh"
+	}
 	name := GetSentinelName(rf)
 	configMapName := GetSentinelName(rf)
 	namespace := rf.Namespace
-
+	replicas := rf.Spec.Sentinel.Replicas
+	nodes := ""
+	for i := 0; i < int(replicas); i++ {
+		if i == 0 {
+			nodes = fmt.Sprintf("rfr-%s-%d.rfr-%s", rf.Name, i, rf.Name)
+			continue
+		}
+		nodes = fmt.Sprintf("%s,%s", nodes, fmt.Sprintf("rfr-%s-%d.rfr-%s", rf.Name, i, rf.Name))
+	}
 	sentinelCommand := getSentinelCommand(rf)
 	selectorLabels := generateSelectorLabels(sentinelRoleName, rf.Name)
 	labels = util.MergeLabels(labels, selectorLabels)
@@ -431,8 +451,18 @@ func generateSentinelDeployment(rf *redisfailoverv1.RedisFailover, labels map[st
 					ServiceAccountName: rf.Spec.Sentinel.ServiceAccountName,
 					InitContainers: []corev1.Container{
 						{
-							Name:            "sentinel-config-copy",
-							Image:           rf.Spec.Sentinel.Image,
+							Name:  "sentinel-config-copy",
+							Image: rf.Spec.Sentinel.Image,
+							Env: []corev1.EnvVar{
+								{
+									Name:  "REDIS_PASSWORD",
+									Value: "",
+								},
+								{
+									Name:  "REDIS_NODE",
+									Value: nodes,
+								},
+							},
 							ImagePullPolicy: pullPolicy(rf.Spec.Sentinel.ImagePullPolicy),
 							VolumeMounts: []corev1.VolumeMount{
 								{
@@ -444,22 +474,37 @@ func generateSentinelDeployment(rf *redisfailoverv1.RedisFailover, labels map[st
 									MountPath: "/redis-writable",
 								},
 							},
-							ReadinessProbe: &corev1.Probe{
-								Handler: corev1.Handler{
-									Exec: &corev1.ExecAction{
-										Command: []string{
-											"redis-server",
-											fmt.Sprintf("/redis/%s", sentinelConfigFileName),
-											"--sentinel",
-										},
-									},
-								},
-							},
 							Command: []string{
-								"cp",
-								fmt.Sprintf("/redis/%s", sentinelConfigFileName),
-								fmt.Sprintf("/redis-writable/%s", sentinelConfigFileName),
+								shell,
+								"-c",
 							},
+							Args: []string{`
+cp /redis/sentinel.conf /redis-writable/sentinel.conf 
+echo "Looping thorugh the redis list to see if Redis Master node is available now"
+for i in ${REDIS_NODE//,/ }
+do
+	while true;
+    do
+		sleep 1
+		set +e
+		if [ "$REDIS_PASSWORD" == "" ]; then
+			MASTER=$(redis-cli --raw -h $i info replication | awk '{print $1}' | grep role: | cut -d ":" -f2)
+		else
+			MASTER=$(redis-cli --raw -h $i -a $REDIS_PASSWORD info replication | awk '{print $1}' | grep role: | cut -d ":" -f2)
+		fi
+		echo $MASTER
+		if [ "$MASTER" == "" ]; then
+			echo "no master info found in $i"
+			MASTER=
+		else
+		   echo "found $MASTER. setting the configurations"
+		   break
+		fi
+    done
+done
+
+
+`},
 							Resources: corev1.ResourceRequirements{
 								Limits: corev1.ResourceList{
 									corev1.ResourceCPU:    resource.MustParse("10m"),
