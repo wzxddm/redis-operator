@@ -290,6 +290,7 @@ func generateRedisStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[stri
 					Containers: []corev1.Container{
 						{
 							Name:            "redis",
+							Args:            redisCommand,
 							Image:           rf.Spec.Redis.Image,
 							ImagePullPolicy: pullPolicy(rf.Spec.Redis.ImagePullPolicy),
 							Ports: []corev1.ContainerPort{
@@ -304,9 +305,20 @@ func generateRedisStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[stri
 									Name:  "REDIS_PASSWORD",
 									Value: rf.Spec.Password,
 								},
+								{
+									Name: "POD_NAME",
+									ValueFrom: &corev1.EnvVarSource{
+										FieldRef: &corev1.ObjectFieldSelector{
+											FieldPath: "metadata.name",
+										},
+									},
+								},
 							},
 							VolumeMounts: volumeMounts,
-							Command:      redisCommand,
+							Command: []string{
+								"bash",
+								"-c",
+							},
 							ReadinessProbe: &corev1.Probe{
 								InitialDelaySeconds: graceTime,
 								TimeoutSeconds:      5,
@@ -852,13 +864,31 @@ func getRedisDataVolumeName(rf *redisfailoverv1.RedisFailover) string {
 	}
 }
 
+var shell = `
+if [[ $POD_NAME == rfr-{{ .Name }}-0 ]]; then
+  redis-server /redis/redis.conf 
+else
+	redis-server /redis/redis.conf slaveof rfr-{{ .Name }}-0.rfr-{{ .Name }} 6379
+fi
+`
+
 func getRedisCommand(rf *redisfailoverv1.RedisFailover) []string {
+	tmpl, err := template.New("redis").Parse(shell)
+	if err != nil {
+		panic(err)
+	}
+
+	var tplOutput bytes.Buffer
+	if err := tmpl.Execute(&tplOutput, rf); err != nil {
+		panic(err)
+	}
+
+	command := tplOutput.String()
 	if len(rf.Spec.Redis.Command) > 0 {
 		return rf.Spec.Redis.Command
 	}
 	return []string{
-		"redis-server",
-		fmt.Sprintf("/redis/%s", redisConfigFileName),
+		command,
 	}
 }
 
