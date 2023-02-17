@@ -4,6 +4,7 @@ import (
 	"bytes"
 	_ "embed"
 	"fmt"
+	"github.com/spotahome/redis-operator/operator/redisfailover/service/tmp"
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -18,12 +19,6 @@ import (
 	redisfailoverv1 "github.com/spotahome/redis-operator/api/redisfailover/v1"
 	"github.com/spotahome/redis-operator/operator/redisfailover/util"
 )
-
-//go:embed redis.conf
-var redisConfigTemplate string
-
-//go:embed sentinel.conf
-var sentinelConfigFileContent string
 
 const (
 	redisConfigurationVolumeName = "redis-config"
@@ -112,6 +107,17 @@ func generateSentinelConfigMap(rf *redisfailoverv1.RedisFailover, labels map[str
 
 	labels = util.MergeLabels(labels, generateSelectorLabels(sentinelRoleName, rf.Name))
 
+	tmpl, err := template.New("sentinel").Parse(tmp.GetSentinelConfigFileContent())
+	if err != nil {
+		panic(err)
+	}
+
+	var tplOutput bytes.Buffer
+	if err := tmpl.Execute(&tplOutput, rf); err != nil {
+		panic(err)
+	}
+	sentinelConfigFileContent := tplOutput.String()
+
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            name,
@@ -120,7 +126,8 @@ func generateSentinelConfigMap(rf *redisfailoverv1.RedisFailover, labels map[str
 			OwnerReferences: ownerRefs,
 		},
 		Data: map[string]string{
-			sentinelConfigFileName: fmt.Sprintf(sentinelConfigFileContent, fmt.Sprintf("rfr-%s-0.rfr-%s", rf.Name, rf.Name)),
+
+			sentinelConfigFileName: sentinelConfigFileContent,
 		},
 	}
 }
@@ -129,7 +136,7 @@ func generateRedisConfigMap(rf *redisfailoverv1.RedisFailover, labels map[string
 	name := GetRedisName(rf)
 	labels = util.MergeLabels(labels, generateSelectorLabels(redisRoleName, rf.Name))
 
-	tmpl, err := template.New("redis").Parse(redisConfigTemplate)
+	tmpl, err := template.New("redis").Parse(tmp.GetRedisConfigTemplate())
 	if err != nil {
 		panic(err)
 	}
@@ -140,10 +147,6 @@ func generateRedisConfigMap(rf *redisfailoverv1.RedisFailover, labels map[string
 	}
 
 	redisConfigFileContent := tplOutput.String()
-
-	if password != "" {
-		redisConfigFileContent = fmt.Sprintf("%s\nmasterauth %s\nrequirepass %s", redisConfigFileContent, password, password)
-	}
 
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -296,6 +299,12 @@ func generateRedisStatefulSet(rf *redisfailoverv1.RedisFailover, labels map[stri
 									Protocol:      corev1.ProtocolTCP,
 								},
 							},
+							Env: []corev1.EnvVar{
+								{
+									Name:  "REDIS_PASSWORD",
+									Value: rf.Spec.Password,
+								},
+							},
 							VolumeMounts: volumeMounts,
 							Command:      redisCommand,
 							ReadinessProbe: &corev1.Probe{
@@ -445,7 +454,7 @@ func generateSentinelDeployment(rf *redisfailoverv1.RedisFailover, labels map[st
 							Env: []corev1.EnvVar{
 								{
 									Name:  "REDIS_PASSWORD",
-									Value: "",
+									Value: rf.Spec.Password,
 								},
 								{
 									Name:  "REDIS_NODE",
@@ -516,6 +525,12 @@ done
 									Name:          "sentinel",
 									ContainerPort: 26379,
 									Protocol:      corev1.ProtocolTCP,
+								},
+							},
+							Env: []corev1.EnvVar{
+								{
+									Name:  "REDIS_PASSWORD",
+									Value: rf.Spec.Password,
 								},
 							},
 							VolumeMounts: []corev1.VolumeMount{
@@ -870,4 +885,20 @@ func getTerminationGracePeriodSeconds(rf *redisfailoverv1.RedisFailover) int64 {
 		return rf.Spec.Redis.TerminationGracePeriodSeconds
 	}
 	return 30
+}
+func getRedisEnv(rf *redisfailoverv1.RedisFailover) []corev1.EnvVar {
+	var env []corev1.EnvVar
+	env = append(env, corev1.EnvVar{
+		Name:  "REDIS_PASSWORD",
+		Value: rf.Spec.Password,
+	})
+	return env
+}
+func getSentinelEnv(rf *redisfailoverv1.RedisFailover) []corev1.EnvVar {
+	var env []corev1.EnvVar
+	env = append(env, corev1.EnvVar{
+		Name:  "REDIS_PASSWORD",
+		Value: rf.Spec.Password,
+	})
+	return env
 }

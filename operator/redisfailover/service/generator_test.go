@@ -1,7 +1,10 @@
 package service_test
 
 import (
+	"bytes"
+	"fmt"
 	"testing"
+	"text/template"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -1483,4 +1486,15 @@ func TestSentinelImagePullPolicy(t *testing.T) {
 		assert.Equal(string(test.expectedPolicy), string(policy))
 		assert.Equal(string(test.expectedConfigPolicy), string(configPolicy))
 	}
+}
+func TestTemp(t *testing.T) {
+	failover := &redisfailoverv1.RedisFailover{ObjectMeta: metav1.ObjectMeta{Name: "aacxzcz"}}
+	redisConfigTemplate := "sentinel monitor mymaster rfr-{{ .Name }}-0.rfr-{{ .Name }} 6379 2"
+	tmpl, _ := template.New("redis").Parse(redisConfigTemplate)
+	var tplOutput bytes.Buffer
+	if err := tmpl.Execute(&tplOutput, failover); err != nil {
+
+	}
+	fmt.Println(tplOutput.String())
+
 }
