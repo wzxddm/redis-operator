@@ -648,7 +648,7 @@ func createRedisExporterContainer(rf *redisfailoverv1.RedisFailover) corev1.Cont
 		Image:           rf.Spec.Redis.Exporter.Image,
 		ImagePullPolicy: pullPolicy(rf.Spec.Redis.Exporter.ImagePullPolicy),
 		Args:            rf.Spec.Redis.Exporter.Args,
-		Env: append(rf.Spec.Redis.Exporter.Env, corev1.EnvVar{
+		Env: append(append(rf.Spec.Redis.Exporter.Env, corev1.EnvVar{
 			Name: "REDIS_ALIAS",
 			ValueFrom: &corev1.EnvVarSource{
 				FieldRef: &corev1.ObjectFieldSelector{
@@ -656,7 +656,10 @@ func createRedisExporterContainer(rf *redisfailoverv1.RedisFailover) corev1.Cont
 				},
 			},
 		},
-		),
+		), corev1.EnvVar{
+			Name:  "REDIS_PASSWORD",
+			Value: rf.Spec.Password,
+		}),
 		Ports: []corev1.ContainerPort{
 			{
 				Name:          "metrics",
@@ -695,7 +698,11 @@ func createSentinelExporterContainer(rf *redisfailoverv1.RedisFailover) corev1.C
 		Image:           rf.Spec.Sentinel.Exporter.Image,
 		ImagePullPolicy: pullPolicy(rf.Spec.Sentinel.Exporter.ImagePullPolicy),
 		Args:            rf.Spec.Sentinel.Exporter.Args,
-		Env:             rf.Spec.Sentinel.Exporter.Env,
+		Env: append(rf.Spec.Sentinel.Exporter.Env,
+			corev1.EnvVar{
+				Name:  "REDIS_PASSWORD",
+				Value: rf.Spec.Password,
+			}),
 		Ports: []corev1.ContainerPort{
 			{
 				Name:          "metrics",
